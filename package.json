@@ -1,0 +1,24 @@
+{
+  "name": "libimportx",
+  "version": "1.0.0",
+  "description": "Import from other languages",
+  "keywords": [
+    "cool",
+    "library"
+  ],
+  "homepage": "https://github.com/itzmetanjim/libimportx-js#readme",
+  "bugs": {
+    "url": "https://github.com/itzmetanjim/libimportx-js/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/itzmetanjim/libimportx-js.git"
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "Tanjim Kamal",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}
