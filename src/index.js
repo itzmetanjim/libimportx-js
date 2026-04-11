@@ -73,6 +73,9 @@ have meant to put quotes.`)
             current=current[sub]
         }
     }
+    if(current===undefined){
+        throw new ReferenceError(`${a} is not defined`)
+    }
     if(parent){
         return [current,last]
     }
