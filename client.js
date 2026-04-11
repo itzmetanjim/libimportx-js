@@ -2,13 +2,16 @@ const libx=require("./src/index.js")
 var variable="value"
 var mydict={"key":"value","key2":[1,2,3],"key3":{"subkey":"subvalue"}}
 var mylist=[1,2,3,"four",{"key":"value"}]
-var myflag=false
+var myflag=[false]
 function myfunction(){
-    myflag=!myflag
-    return myflag
+    myflag[0]=!myflag[0]
+    return myflag[0]
 }
 function printout(x){
     console.log(x)
+}
+function add(a,b){
+    return a+b
 }
 module.exports={variable,mydict,mylist,myflag,myfunction,JSON}
 if(!libx.exportx()){
