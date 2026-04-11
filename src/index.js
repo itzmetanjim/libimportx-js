@@ -85,17 +85,16 @@ have meant to put quotes.`)
 function tname(x){
     if(x===null){return "null"}
     if(x===undefined){return "undefined"}
+    if(x[Symbol.toStringTag]){return x[Symbol.toStringTag]}
     if(x.constructor && x.constructor.name){return x.constructor.name}
     /*if none of the above*/ return typeof x
 }
 function monoencode(key,x){
-    if(!(typeof x === "object" &&
-        x !== null &&
-        x.constructor !== Object &&
-        x.constructor !== Array)&&
-        typeof x !== "function"){
-        return x
-    }
+    if(typeof x !== "object" && typeof x !== 'function'){return x}
+    if(x===null){return x}
+    if(Array.isArray(x)){return x}
+    if(x.constructor==="Object" && !x[Symbol.toStringTag]){return x}
+
     let typ,ans,handle
     if(typeof x==="function"){typ="function"}
     else{typ="opaque"}
