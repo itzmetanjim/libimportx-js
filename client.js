@@ -13,7 +13,7 @@ function printout(x){
 function add(a,b){
     return a+b
 }
-module.exports={variable,mydict,mylist,myflag,myfunction,JSON}
+module.exports={variable,mydict,mylist,myflag,myfunction,JSON,add}
 if(!libx.exportx()){
     console.log("This file is not being importx'ed")
 }else{
