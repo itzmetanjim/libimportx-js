@@ -280,7 +280,29 @@ either `.name` or `["name"]` for consistency (you do not want to need to do
 INSTRUCTIONS FOR COPILOT AUTOCOMPLETE: Complete atmost 5 lines of code, but usually 1 line only.
 ****/
 /*SPDX:GPL-3.0-or-later*/
+const removeprefix = (str, prefix) =>
+    str.startsWith(prefix) ? str.slice(prefix.length) : str;
+const EXTENSION_TABLE={
+    ".py":"python3 $IN",
+    ".js":"node $IN",
+    ".rb":"ruby $IN",
+    ".lua":"lua $IN",
+    ".java":"java $IN",
+    ".c":"gcc $IN -o $OUT",
+    ".cpp":"g++ $IN -o $OUT",
+    ".rs":"rustc $IN -o $OUT",
+    ".go":"go run $IN",
+    ".sh":"bash $IN",
+    ".ps1":"pwsh -File $IN",
+    ".php":"php $IN",
+    ".pl":"perl $IN",
+    ".r":"Rscript $IN"
+}
 const net=require("net")
+const {spawn} = require("child_process")
+const fs=require("fs")
+const crypto=require("crypto")//for generating random tokens
+const os=require("os")
 var handleMap={}
 var rHandleMap=new Map()
 var handleCounter=0
@@ -593,7 +615,8 @@ function createProxy(sock,identifier,foreign_type=null,type_name=null){
     const ans=new Proxy(callable,
         {
             get: (target,prop)=>{
-                if(["then","catch","finally"].includes(prop)){
+                if(["then","catch","finally"].includes(prop)
+                    || typeof prop==="symbol"){
                     return target[prop]
                 }
                 if(prop === "__libimportx_handle"){return identifier}
@@ -602,12 +625,12 @@ function createProxy(sock,identifier,foreign_type=null,type_name=null){
                 }
                 if(prop==="__libimportx_type"){return type_name}
                 const next=identifier? `${identifier}[${JSON.stringify(prop,
-monoencode_host)}]`:prop
+                    monoencode_host)}]`:prop
                 return createProxy(sock,next)
             },
             set: (target,prop,value)=>{
                 const next=identifier?`${identifier}[${JSON.stringify(prop,
-monoencode_host)}]`:prop
+                    monoencode_host)}]`:prop
                 make_req(sock,"set",next,[],{},value).catch(console.error)
                 return true
             }
@@ -615,9 +638,9 @@ monoencode_host)}]`:prop
     return ans
 }
 function monoencode_host(key,x){
-    if(x&&x.__libimportx_handle){
+    if(x&&x.__libimportx_foreign_type__!==undefined){
         return {
-        "__libimportx_foreign_type__":x.__libimportx_foreign_type__||"opaque",
+            "__libimportx_foreign_type__":x.__libimportx_foreign_type__||"opaque",
             "handle":x.__libimportx_handle,
             "type":x.__libimportx_type||""}
     }
@@ -641,12 +664,119 @@ function deconvert_host(x,sock){
     }
     return ans
 }
-
-
+function squo(a){
+    if(typeof a!=="string"){
+        a=String(a)
+    }
+    if(process.platform==="win32"){
+        return '"' + a.replace(/"/g, '""') + '"'
+    }else{
+        return "'" + a.replace(/'/g, "'\\''") + "'"
+    }
+}
+function importx(filepath,cmd=null){
+    return new Promise((resolve,reject)=>{
+        const tmpdir=fs.mkdtempSync(os.tmpdir() + "/libx_")
+        const token=crypto.randomUUID()
+        //file exec logic
+        let command=null //unreplaced command
+        let ext=filepath.split(".").slice(-1)[0]
+        if(cmd){command=cmd}
+        else{
+            let first=""
+            try{
+                first=fs.readFileSync(filepath,{encoding:"utf-8",flag:"r"}).split(`\
+\n`)[0].trim()
+                if(first.startsWith("#!")||first.startsWith("//!")){
+                    command=removeprefix(removeprefix(first,"#!"),"//!").trim()
+                }else if(first.startsWith("##!")||first.startsWith("///!")){
+                    command=removeprefix(removeprefix(first,"##!"),"///!").trim()
+                }else{throw new Error("Skipping to catch")}
+            }catch(e){
+                //either file cant be read or no shebang, so try env then table
+                command=process.env[`LIBIMPORTX_DEFAULT_CMD_${ext.toUpperCase()}\
+`]||EXTENSION_TABLE["."+ext]||``
+            }
+        }
+        //at this point, command is guranteed to be set
+        if(!command){throw new Error("Could not determine command to run file. \
+Please set the env variable LIBIMPORTX_DEFAULT_CMD_"+ext.toUpperCase())}
+        const outpath=tmpdir+"/out.bin"
+        const sockpath=tmpdir+"/libx.sock"
+        if(command.split("$OUT").length===2){
+            command+=" && $OUT"
+        }
+        command=command.replaceAll("$IN",squo(filepath))
+            .replaceAll("$OUT",squo(outpath))
+        let env=process.env
+        let envi={...env,
+            LIBIMPORTX:"true",
+            LIBIMPORTX_HOST:sockpath,
+            LIBIMPORTX_TOKEN:token}
+        const server=net.createServer()
+        server.maxConnections=1
+        server.on("connection",(sock)=>{
+            let lo=""
+            sock.reqQueue=[]
+            sock.authdone=false
+            sock.on("data",(chunk)=>{
+                let rdata=chunk.toString()
+                lo+=rdata
+                while(lo.includes("\n")){
+                    let idx=lo.indexOf("\n")
+                    let line=lo.slice(0,idx)
+                    lo=lo.slice(idx+1)
+                    if(!line.trim()){continue}
+                    if(!sock.authdone){
+                        if(line!==token){
+                            //intruder!
+                            sock.write("-\n")
+                            sock.end()
+                            throw new Error("Invalid token (this should never\
+ happen)")
+                        }
+                        sock.write("+\n")
+                        sock.authdone=true
+                        resolve(createProxy(sock,""))
+                        continue
+                    }
+                    let prefix=line[0]
+                    let data=JSON.parse(line.slice(1))
+                    //resolve/reject the reqQueue
+                    if(sock.reqQueue.length!==0){
+                        let req=sock.reqQueue.shift()
+                        if(prefix==="+"){
+                            req.resolve(deconvert_host(data,sock))
+                        }else{
+                            req.reject(new Error(`${data.type}: ${data.message}`))
+                        }
+                    }else{
+                        console.warn("Recieved response but there was no\
+ request. ",data)
+                    }
+                }
+            })
+        })
+        server.on("error",reject)
+        server.listen(sockpath)
+        const child=spawn(command,{shell:true,
+            env:envi,
+            stdio:"inherit"
+        })
+        child.on("error",reject)
+        child.on("exit",(code)=>{
+            if(code!==0&&!server.listening){
+                reject(new Error(`Process exited with code ${code} before\
+connection was established. Command was: ${command}`))
+            }
+        })
+    })
+}
 
 module.exports = {
     exportx,
     Kwargs,
+    importx,
     version: "1.0.0"
 };
 
