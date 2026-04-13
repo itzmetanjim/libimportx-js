@@ -615,6 +615,9 @@ function createProxy(sock,identifier,foreign_type=null,type_name=null){
     const ans=new Proxy(callable,
         {
             get: (target,prop)=>{
+                if(prop==="then"&&!identifier){
+                    return undefined //its not a promise
+                }
                 if(["then","catch","finally"].includes(prop)
                     || typeof prop==="symbol"){
                     return target[prop]
