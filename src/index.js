@@ -211,7 +211,14 @@ function exportx(root=null){
         throw new Error("LIBIMPORTX_HOST LIBIMPORTX_TOKEN env vars not set")
     }
     var hasConnected=false
-    const client=net.createConnection(lihost)
+    var client=null
+    if(!lihost.includes(":")){
+        client=net.createConnection(lihost)
+    }
+    else{
+        let [host,port]=lihost.split(":")
+        client=net.createConnection(parseInt(port),host)
+    }
     let lo="" //leftover
     //on the connect event
     client.on("connect",()=>{
@@ -431,10 +438,6 @@ Please set the env variable LIBIMPORTX_DEFAULT_CMD_"+ext.toUpperCase())}
         command=command.replaceAll("$IN",squo(filepath))
             .replaceAll("$OUT",squo(outpath))
         let env=process.env
-        let envi={...env,
-            LIBIMPORTX:"true",
-            LIBIMPORTX_HOST:sockpath,
-            LIBIMPORTX_TOKEN:token}
         const server=net.createServer()
         server.maxConnections=1
         server.on("connection",(sock)=>{
@@ -480,18 +483,33 @@ Please set the env variable LIBIMPORTX_DEFAULT_CMD_"+ext.toUpperCase())}
             })
         })
         server.on("error",reject)
-        server.listen(sockpath)
-        const child=spawn(command,{shell:true,
-            env:envi,
-            stdio:"inherit"
-        })
-        child.on("error",reject)
-        child.on("exit",(code)=>{
-            if(code!==0&&!server.listening){
-                reject(new Error(`Process exited with code ${code} before\
-connection was established. Command was: ${command}`))
+        const callback=()=>{
+            let envi={...env,
+                LIBIMPORTX:"true",
+                LIBIMPORTX_HOST:sockpath,
+                LIBIMPORTX_TOKEN:token}
+            if(process.platform==="win32"){
+                envi.LIBIMPORTX_HOST="127.0.0.1:"+server.address().port
             }
-        })
+            const child=spawn(command,{shell:true,
+                env:envi,
+                stdio:"inherit"
+            })
+            child.on("error",reject)
+            child.on("exit",(code)=>{ //calbacks inside callbacks? js is cursed
+                if(code!==0&&!server.listening){
+                    reject(new Error(`Process exited with code ${code} before\
+connection was established. Command was: ${command}`))
+                }
+            })
+
+        }
+        server.on("listening",callback)
+        if(process.platform!=="win32"){
+            server.listen(sockpath)
+        }else{
+            server.listen(0,"127.0.0.1")
+        }
     })
 }
 
